@@ -1,4 +1,4 @@
-# kiwoom 증권 API 연동
+# 백테스트 - 실거래 플랫폼
 
 ## 환경
 * MS Windows
@@ -9,3 +9,4 @@
 
 ## API
 * 키움 증권 전용 API 인 KOA studio 기반
+* 

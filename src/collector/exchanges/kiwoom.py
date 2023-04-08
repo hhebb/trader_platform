@@ -4,16 +4,18 @@ import pythoncom
 import queue
 import time
 import pandas as pd
+from datetime import datetime, timedelta
 
-class KiwoomExchange(Exchange):
+class KiwoomExchange:
     def __init__(self):
-        super().__init__()
+        # super().__init__()
         self.ocx = QAxWidget("KHOPENAPI.KHOpenAPICtrl.1")
         self.ocx.OnEventConnect.connect(self.OnEventConnect)
         self.ocx.OnReceiveTrData.connect(self.OnReceiveTrData)
         self.login = False
         self.tr = False
-        self.tr_queue = queue.Queue() # buffer
+        self.tr_queue = list() # buffer
+        self.buffer = list()
         # self.tr_data = dict()
 
     def connect(self):
@@ -25,41 +27,48 @@ class KiwoomExchange(Exchange):
 
     def get_data(self):
         # 마지막 처리 필요
-
-        # decode self.preference
-        # self.preference.items
-        # self.preference.data_type
-        # self.preference.range
-        # self.preference.period
         self.start_date = self.preference.range[0]
         self.end_date = self.preference.range[1]
-        self.cur_date = self.start_date
+        self.cur_date = None
         
-        buffer = list()
+        # buffer = list()
+        self.next = 0
 
-        for code in list(5):
+        for code in self.preference.items:
+            cur_date = None
+            info = ('stock', 'candle', '1s', code)
             while True:
                 self.SetInputValue("종목코드", code)
-                self.SetInputValue("기준일자", "20050612")
+                self.SetInputValue("틱범위", "1")
                 self.SetInputValue("수정주가구분", "0")
-                self.CommRqData("ex", "opt10081", next, "0101")
-                # tr_data, remain = self.tr_queue.get()
-                time.sleep(1)
+                self.CommRqData("ex", "opt10080", self.next, "0101")
 
-                # self.tr_queue.put(tr_data)
-                while self.tr_queue[0].date != self.cur_date:
-                    price, remain = self.tr_queue.get()
-                    buffer.append(price)
+                df = pd.DataFrame(self.buffer[::-1], columns=['datetime', 'open', 'high', 'low', 'close', 'volume'])
+                yield df, info
+
+                time.sleep(.5)
+
+                ######################################
+
+                # # 현재 날짜 초기화
+                # if cur_date == None:
+                #     cur_date = datetime.strptime(self.tr_queue[0][0], "%Y%m%d%H%M%S").date()
                 
-                if len(buffer) > 0:
-                    pd.DataFrame() # to dataframe
-                    yield buffer
-                    buffer = list()
-                    self.cur_date = self.tr_queue[0].date
-
+                # # 하나씩 비우다가 날짜 바뀌면 내보냄
+                # while self.tr_queue:
+                #     popped = self.tr_queue.pop(0)
+                #     buffer.append(popped)
+                    
+                #     if cur_date != datetime.strptime(popped[0], "%Y%m%d%H%M%S").date():
+                #         print(cur_date)
+                #         info = ('stock', 'candle', '1s', code, buffer[0][0])
+                #         yield buffer, info
+                #         buffer = list()
+                #         cur_date = datetime.strptime(popped[0], "%Y%m%d%H%M%S").date()
+                        
                 # no more data, no more loop
-                if remain == '2':
-                    next = 2
+                if self.next == '2':
+                    self.next = 2
                     self.tr = True
                 else:
                     break
@@ -79,16 +88,25 @@ class KiwoomExchange(Exchange):
 
     def OnReceiveTrData(self, screen, rqname, trcode, record, next):
         # rqname 에 ex 붙여서 통째로 받는 방법도 만들어놓기
-        print(screen, rqname, trcode, record, next)
         self.tr = True
 
-        name = self.GetCommData(trcode, rqname, 0, "종목명")
-        per = self.GetCommData(trcode, rqname, 0, "PER")
-        pbr = self.GetCommData(trcode, rqname, 0, "PBR")
+        rows = self.GetRepeatCnt(trcode, record)
+        if rows == 0:
+            rows = 1
 
-        data = (name, per, pbr)
-        self.tr_data[trcode] = data
-        self.tr_queue.put((data, next))
+        data = list()
+        for row in range(rows):
+            date = self.GetCommData(trcode, rqname, row, "체결시간")
+            open = self.GetCommData(trcode, rqname, row, "시가")
+            high = self.GetCommData(trcode, rqname, row, "고가")
+            low  = self.GetCommData(trcode, rqname, row, "저가")
+            close = self.GetCommData(trcode, rqname, row, "현재가")
+            volume = self.GetCommData(trcode, rqname, row, "거래량")
+
+            data.append((date, open, high, low, close, volume))
+        # self.tr_queue.extend(data)
+        self.buffer = data
+        self.next = next
 
     def GetCodeListByMarket(self, market):
         ret = self.ocx.dynamicCall("GetCodeListByMarket(QString)", market)

@@ -1,4 +1,6 @@
 import os
+import pandas as pd
+from datetime import datetime
 
 class Collector:
     '''
@@ -34,8 +36,9 @@ class Collector:
 
         data_generator = self.exchange.get_data() # generator
 
-        for data in data_generator:
-            self.__save(data)
+        for data, info in data_generator:
+            if self.__save(data, info):
+                break
 
     def execute_update(self):
         pass
@@ -43,22 +46,79 @@ class Collector:
     def execute_flush(self):
         pass
 
-    def __save(self, data):
+    
+    def __save_and_check_overlap(self, data, info):
         '''
         거래소에서 받아온 데이터를 직접 저장하는 메서드
         일관된 형식으로 받아서 일관된 형태로 저장하기 때문에 거래소 모듈에서 forming 해야함
         '''
-        self.data_queue
-        path = os.path.join(self.prefernce.market_type,
-                            self.prefernce.data_type,
-                            self.prefernce.period,
-                            self.prefernce.items,
-                            self.prefernce.range
+
+        is_overlap = False
+        path = os.path.join(info[0],
+                            info[1],
+                            info[2],
+                            info[3],
                             )
 
-        with open(f'{path}.csv', 'w') as f:
-            f.write(data)
+        # 파일이 존재하면 이어 붙이기
+        if os.path.exists(f'{path}.csv'):
+            df = pd.read_csv(f'{path}.csv', index_col=0)
+            df = pd.concat([data, df], ignore_index=True)
+        else:
+            if not os.path.exists(os.path.split(path)[0]):
+                os.makedirs(os.path.split(path)[0])
+            df = data
+            
 
+        df.to_csv(f'{path}.csv')
+
+        return is_overlap
+
+    # update
+    def __update_and_check_overlap(self, data, info):
+        '''
+        거래소에서 받아온 데이터를 직접 저장하는 메서드
+        일관된 형식으로 받아서 일관된 형태로 저장하기 때문에 거래소 모듈에서 forming 해야함
+        '''
+
+        is_overlap = False
+        path = os.path.join(info[0],
+                            info[1],
+                            info[2],
+                            info[3],
+                            )
+
+        # 파일이 존재하면 이어 붙이기
+        if os.path.exists(f'{path}.csv'):
+            df = pd.read_csv(f'{path}.csv', index_col=0)
+            
+            # 날짜 중복되면 중지할 준비
+            if datetime.strptime(str(df.iloc[-1]['datetime']), '%Y%m%d%H%M%S') > datetime.strptime(str(data.iloc[-1]['datetime']), '%Y%m%d%H%M%S'):
+                is_overlap = True
+            df = pd.concat([data, df], ignore_index=True)
+        else:
+            if not os.path.exists(os.path.split(path)[0]):
+                os.makedirs(os.path.split(path)[0])
+            df = data
+            
+
+        df.to_csv(f'{path}.csv')
+
+        return is_overlap
+
+        ###############################
+        # self.data_queue
+        # path = os.path.join(info[0],
+        #                     info[1],
+        #                     info[2],
+        #                     info[3],
+        #                     )
+
+        # if not os.path.exists(os.path.split(path)[0]):
+        #     os.makedirs(os.path.split(path)[0])
+
+        # with open(f'{path}.csv', 'w') as f:
+        #     f.write(''.join(map(str, data)))
 
 class Runner:
     def __init__(self):
@@ -69,10 +129,10 @@ class Preference:
     '''
     사용자가 수집하려는 데이터 형식
     '''
-    def __init__(self):
-        self.market_type = 'stock'
-        self.data_type = 'candle'
-        self.period = '1m'
-        self.items = list()
-        self.range = ['20220103', '20220107']
+    def __init__(self, market_type='stock', data_type='cangle', period='1m', items=['005930', '035720', '035420'], range_=['20220103', '20220105']):
+        self.market_type = market_type
+        self.data_type = data_type
+        self.period = period
+        self.items = items
+        self.range = range_
         # self.~
